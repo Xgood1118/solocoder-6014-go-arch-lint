@@ -1,0 +1,3 @@
+$ go-arch-lint check --max-warnings=0 --output-type=json --> FAIL
+flag 'max-warnings' should by in range [1 .. 32768]
+
