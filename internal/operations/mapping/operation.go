@@ -3,7 +3,9 @@ package mapping
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/fe3dback/go-arch-lint/internal/models"
 	"github.com/fe3dback/go-arch-lint/internal/models/arch"
@@ -43,13 +45,53 @@ func (o *Operation) Behave(ctx context.Context, in models.CmdMappingIn) (models.
 		return models.CmdMappingOut{}, fmt.Errorf("failed to resolve project files: %w", err)
 	}
 
+	if in.FilterGlob != "" {
+		projectFiles = applyFilter(projectFiles, in.FilterGlob)
+	}
+
 	return models.CmdMappingOut{
 		ProjectDirectory: spec.RootDirectory.Value,
 		ModuleName:       spec.ModuleName.Value,
 		MappingGrouped:   assembleMappingByComponent(spec, projectFiles),
 		MappingList:      assembleMappingByFile(projectFiles),
 		Scheme:           in.Scheme,
+		FilterGlob:       in.FilterGlob,
 	}, nil
+}
+
+func applyFilter(files []models.FileHold, filterGlob string) []models.FileHold {
+	matcher := newGlobMatcher(filterGlob)
+	filtered := make([]models.FileHold, 0, len(files))
+
+	for _, f := range files {
+		if matcher.match(f.File.Path) {
+			filtered = append(filtered, f)
+		}
+	}
+
+	return filtered
+}
+
+type globMatcher struct {
+	pattern *regexp.Regexp
+}
+
+func newGlobMatcher(glob string) globMatcher {
+	escaped := regexp.QuoteMeta(glob)
+	escaped = strings.ReplaceAll(escaped, `\*\*`, ".*")
+	escaped = strings.ReplaceAll(escaped, `\*`, "[^/]+")
+	pattern := "^" + escaped + "$"
+
+	compiled, err := regexp.Compile(pattern)
+	if err != nil {
+		compiled = regexp.MustCompile(".*")
+	}
+
+	return globMatcher{pattern: compiled}
+}
+
+func (m globMatcher) match(path string) bool {
+	return m.pattern.MatchString(path)
 }
 
 func assembleMappingByComponent(

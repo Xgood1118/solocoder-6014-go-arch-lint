@@ -112,6 +112,7 @@ func (c *Container) commands() []*cobra.Command {
 		unwrap(c.commandCheck()),
 		unwrap(c.commandMapping()),
 		unwrap(c.commandGraph()),
+		unwrap(c.commandCache()),
 	}
 
 	list := make([]*cobra.Command, 0, len(executors))

@@ -1,0 +1,6 @@
+{{- /*gotype: github.com/fe3dback/go-arch-lint/internal/models.CmdCacheOut*/ -}}
+
+module: {{ .ModuleName | colorize "green" }}
+Cache file generated:
+  {{ .CacheFile | colorize "blue" }}
+  {{ .FilesCached }} files cached

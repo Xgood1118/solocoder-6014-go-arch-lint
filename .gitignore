@@ -53,6 +53,7 @@ hs_err_pid*.log
 
 # ── Go ──
 vendor/
+.go-arch-lint.cache
 
 # ── Python ──
 __pycache__/

@@ -2,6 +2,21 @@
 
 {{ if .ExportD2 -}}
 	{{ .D2Definitions -}}
+{{ else if .IsDiff -}}
+	{{ if gt (len .DiffAddedEdges) 0 -}}
+		Added dependencies:
+		{{ range .DiffAddedEdges -}}
+			{{ "  +" }} {{ .From | colorize "green" }} -> {{ .To | colorize "green" }}
+		{{ end -}}
+	{{ end -}}
+	{{ if gt (len .DiffRemovedEdges) 0 -}}
+		Removed dependencies:
+		{{ range .DiffRemovedEdges -}}
+			{{ "  -" }} {{ .From | colorize "red" }} -> {{ .To | colorize "red" }}
+		{{ end -}}
+	{{ end -}}
+	Diff graph outputted to:
+	{{ .OutFile | colorize "blue" }}
 {{ else -}}
 	Graph outputted to:
 	{{ .OutFile | colorize "blue" }}

@@ -12,6 +12,7 @@ type (
 		RootDirectory       common.Referable[string]
 		WorkingDirectory    common.Referable[string]
 		ModuleName          common.Referable[string]
+		GoArchFilePath      string
 		Allow               Allow
 		Components          []Component
 		Exclude             []common.Referable[models.ResolvedPath]

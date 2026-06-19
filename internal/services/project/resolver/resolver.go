@@ -10,27 +10,41 @@ import (
 )
 
 type Resolver struct {
-	projectFilesResolver projectFilesResolver
-	projectFilesHolder   projectFilesHolder
+	projectFilesScanner projectFilesScanner
+	projectFilesHolder  projectFilesHolder
+	cacheService        cacheService
 }
 
 func NewResolver(
-	projectFilesResolver projectFilesResolver,
+	projectFilesScanner projectFilesScanner,
 	projectFilesHolder projectFilesHolder,
+	cacheService cacheService,
 ) *Resolver {
 	return &Resolver{
-		projectFilesResolver: projectFilesResolver,
-		projectFilesHolder:   projectFilesHolder,
+		projectFilesScanner: projectFilesScanner,
+		projectFilesHolder:  projectFilesHolder,
+		cacheService:        cacheService,
 	}
 }
 
 func (r *Resolver) ProjectFiles(ctx context.Context, spec arch.Spec) ([]models.FileHold, error) {
+	if r.cacheService != nil {
+		projectFiles, cacheHit, err := r.tryCache(spec)
+		if err != nil {
+			return nil, fmt.Errorf("cache read failed: %w", err)
+		}
+
+		if cacheHit {
+			return r.projectFilesHolder.HoldProjectFiles(projectFiles, spec.Components), nil
+		}
+	}
+
 	scanDirectory := path.Clean(fmt.Sprintf("%s/%s",
 		spec.RootDirectory.Value,
 		spec.WorkingDirectory.Value,
 	))
 
-	projectFiles, err := r.projectFilesResolver.Scan(
+	projectFiles, err := r.projectFilesScanner.Scan(
 		ctx,
 		scanDirectory,
 		spec.ModuleName.Value,
@@ -43,4 +57,23 @@ func (r *Resolver) ProjectFiles(ctx context.Context, spec arch.Spec) ([]models.F
 
 	holdFiles := r.projectFilesHolder.HoldProjectFiles(projectFiles, spec.Components)
 	return holdFiles, nil
+}
+
+func (r *Resolver) tryCache(spec arch.Spec) ([]models.ProjectFile, bool, error) {
+	cache, err := r.cacheService.Read(spec.RootDirectory.Value)
+	if err != nil {
+		return nil, false, nil
+	}
+
+	configHash, err := r.cacheService.ComputeConfigHash(spec.GoArchFilePath)
+	if err != nil {
+		return nil, false, nil
+	}
+
+	if !r.cacheService.IsValid(cache, configHash) {
+		return nil, false, nil
+	}
+
+	projectFiles := r.cacheService.ToProjectFiles(cache)
+	return projectFiles, true, nil
 }

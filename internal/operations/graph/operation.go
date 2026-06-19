@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -46,6 +47,14 @@ func (o *Operation) Behave(ctx context.Context, in models.CmdGraphIn) (models.Cm
 		return models.CmdGraphOut{}, fmt.Errorf("failed to assemble spec: %w", err)
 	}
 
+	if in.Type == models.GraphTypeDiff {
+		return o.behaveDiff(ctx, in, spec)
+	}
+
+	return o.behaveNormal(ctx, in, spec)
+}
+
+func (o *Operation) behaveNormal(ctx context.Context, in models.CmdGraphIn, spec arch.Spec) (models.CmdGraphOut, error) {
 	graphCode, err := o.buildGraph(spec, in)
 	if err != nil {
 		return models.CmdGraphOut{}, fmt.Errorf("failed build graph: %w", err)
@@ -75,6 +84,204 @@ func (o *Operation) Behave(ctx context.Context, in models.CmdGraphIn) (models.Cm
 		D2Definitions:    string(graphCode),
 		ExportD2:         in.ExportD2,
 	}, nil
+}
+
+func (o *Operation) behaveDiff(ctx context.Context, in models.CmdGraphIn, spec arch.Spec) (models.CmdGraphOut, error) {
+	if in.DiffFrom == "" || in.DiffTo == "" {
+		return models.CmdGraphOut{}, fmt.Errorf("diff mode requires --diff-from and --diff-to commit refs")
+	}
+
+	fromEdges, err := o.edgesAtCommit(in, in.DiffFrom)
+	if err != nil {
+		return models.CmdGraphOut{}, fmt.Errorf("failed to resolve edges at '%s': %w", in.DiffFrom, err)
+	}
+
+	toEdges, err := o.edgesAtCommit(in, in.DiffTo)
+	if err != nil {
+		return models.CmdGraphOut{}, fmt.Errorf("failed to resolve edges at '%s': %w", in.DiffTo, err)
+	}
+
+	added, removed := diffEdges(fromEdges, toEdges)
+
+	graphCode, err := o.buildDiffGraph(added, removed)
+	if err != nil {
+		return models.CmdGraphOut{}, fmt.Errorf("failed build diff graph: %w", err)
+	}
+
+	svg, err := o.compileGraph(ctx, graphCode)
+	if err != nil {
+		return models.CmdGraphOut{}, fmt.Errorf("failed to compile diff graph: %w", err)
+	}
+
+	outFile, err := filepath.Abs(in.OutFile)
+	if err != nil {
+		return models.CmdGraphOut{}, fmt.Errorf("failed get abs path from '%s': %w", in.OutFile, err)
+	}
+
+	if o.isFileShouldBeWritten(in) {
+		err = os.WriteFile(outFile, svg, 0o600)
+		if err != nil {
+			return models.CmdGraphOut{}, fmt.Errorf("failed write diff graph into '%s' file: %w", in.OutFile, err)
+		}
+	}
+
+	return models.CmdGraphOut{
+		ProjectDirectory: spec.RootDirectory.Value,
+		ModuleName:       spec.ModuleName.Value,
+		OutFile:          outFile,
+		D2Definitions:    string(graphCode),
+		ExportD2:         in.ExportD2,
+		IsDiff:           true,
+		DiffAddedEdges:   added,
+		DiffRemovedEdges: removed,
+	}, nil
+}
+
+type edgeKey struct {
+	From string
+	To   string
+}
+
+func (o *Operation) edgesAtCommit(in models.CmdGraphIn, commitRef string) (map[edgeKey]struct{}, error) {
+	resolvedRef, err := o.resolveCommitRef(commitRef, in.ProjectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve commit ref '%s': %w", commitRef, err)
+	}
+
+	stashErr := o.gitStash(in.ProjectPath)
+	if stashErr == nil {
+		defer o.gitStashPop(in.ProjectPath)
+	}
+
+	checkoutErr := o.gitCheckout(resolvedRef, in.ProjectPath)
+	if checkoutErr != nil {
+		return nil, fmt.Errorf("failed to checkout '%s': %w", resolvedRef, checkoutErr)
+	}
+	defer o.gitCheckout("-", in.ProjectPath)
+
+	projectInfo, err := o.projectInfoAssembler.ProjectInfo(in.ProjectPath, in.ArchFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to assemble project info at '%s': %w", resolvedRef, err)
+	}
+
+	commitSpec, err := o.specAssembler.Assemble(projectInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to assemble spec at '%s': %w", resolvedRef, err)
+	}
+
+	edges := o.collectEdges(commitSpec, in)
+	return edges, nil
+}
+
+func (o *Operation) collectEdges(spec arch.Spec, opts models.CmdGraphIn) map[edgeKey]struct{} {
+	whiteList, err := o.populateGraphWhitelist(spec, opts)
+	if err != nil {
+		return nil
+	}
+
+	edges := make(map[edgeKey]struct{})
+	for _, cmp := range spec.Components {
+		if _, visible := whiteList[cmp.Name.Value]; !visible {
+			continue
+		}
+
+		for _, dep := range cmp.MayDependOn {
+			if _, visible := whiteList[dep.Value]; !visible {
+				continue
+			}
+
+			edges[edgeKey{From: cmp.Name.Value, To: dep.Value}] = struct{}{}
+		}
+	}
+
+	return edges
+}
+
+func diffEdges(from, to map[edgeKey]struct{}) (added, removed []models.GraphDiffEdge) {
+	added = make([]models.GraphDiffEdge, 0)
+	removed = make([]models.GraphDiffEdge, 0)
+
+	for k := range to {
+		if _, exists := from[k]; !exists {
+			added = append(added, models.GraphDiffEdge{From: k.From, To: k.To})
+		}
+	}
+
+	for k := range from {
+		if _, exists := to[k]; !exists {
+			removed = append(removed, models.GraphDiffEdge{From: k.From, To: k.To})
+		}
+	}
+
+	sort.Slice(added, func(i, j int) bool {
+		if added[i].From != added[j].From {
+			return added[i].From < added[j].From
+		}
+		return added[i].To < added[j].To
+	})
+
+	sort.Slice(removed, func(i, j int) bool {
+		if removed[i].From != removed[j].From {
+			return removed[i].From < removed[j].From
+		}
+		return removed[i].To < removed[j].To
+	})
+
+	return added, removed
+}
+
+func (o *Operation) resolveCommitRef(ref string, projectPath string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", ref)
+	cmd.Dir = projectPath
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse '%s' failed: %w", ref, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (o *Operation) gitCheckout(ref string, projectPath string) error {
+	cmd := exec.Command("git", "checkout", ref)
+	cmd.Dir = projectPath
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (o *Operation) gitStash(projectPath string) error {
+	cmd := exec.Command("git", "stash", "--include-untracked")
+	cmd.Dir = projectPath
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+	return nil
+}
+
+func (o *Operation) gitStashPop(projectPath string) error {
+	cmd := exec.Command("git", "stash", "pop")
+	cmd.Dir = projectPath
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+	return nil
+}
+
+func (o *Operation) buildDiffGraph(added, removed []models.GraphDiffEdge) ([]byte, error) {
+	linesBuff := make([]string, 0, 256)
+
+	for _, edge := range added {
+		linesBuff = append(linesBuff, fmt.Sprintf("%s -> %s {\n  style.stroke: \"#22AA44\"\n  style.font-size: 12\n  label: \"added\"\n}\n", edge.From, edge.To))
+	}
+
+	for _, edge := range removed {
+		linesBuff = append(linesBuff, fmt.Sprintf("%s -> %s {\n  style.stroke: \"#CC3333\"\n  style.stroke-dash: 5\n  style.font-size: 12\n  label: \"removed\"\n}\n", edge.From, edge.To))
+	}
+
+	var buff bytes.Buffer
+	sort.Strings(linesBuff)
+
+	for _, line := range linesBuff {
+		buff.WriteString(strings.ReplaceAll(line, "\t", ""))
+	}
+
+	return buff.Bytes(), nil
 }
 
 func (o *Operation) isFileShouldBeWritten(in models.CmdGraphIn) bool {
@@ -208,16 +415,13 @@ func (o *Operation) populateGraphWhitelistFocused(spec arch.Spec, focusCmpName s
 			continue
 		}
 
-		// cmp itself
 		whiteList[cmp.Name.Value] = struct{}{}
 
-		// cmp deps
 		for _, dep := range cmp.MayDependOn {
 			whiteList[dep.Value] = struct{}{}
 			resolveList = append(resolveList, dep.Value)
 		}
 
-		// mark as resolved (for recursion check)
 		resolved[cmp.Name.Value] = struct{}{}
 	}
 

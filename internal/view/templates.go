@@ -10,6 +10,9 @@ import (
 //go:embed view_check.gohtml
 var viewCheck []byte
 
+//go:embed view_cache.gohtml
+var viewCache []byte
+
 //go:embed view_error.gohtml
 var viewError []byte
 
@@ -29,6 +32,7 @@ var viewSelfInspect []byte
 var viewVersion []byte
 
 var Templates = map[string]string{
+	tpl(models.CmdCacheOut{}):       string(viewCache),
 	tpl(models.CmdCheckOut{}):       string(viewCheck),
 	tpl(models.CmdErrorOut{}):       string(viewError),
 	tpl(models.CmdGraphOut{}):       string(viewGraph),

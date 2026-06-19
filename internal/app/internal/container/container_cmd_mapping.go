@@ -22,6 +22,7 @@ func (c *Container) commandMapping() (*cobra.Command, runner) {
 		ProjectPath: models.DefaultProjectPath,
 		ArchFile:    models.DefaultArchFileName,
 		Scheme:      models.MappingSchemeList,
+		FilterGlob:  "",
 	}
 
 	cmd.PersistentFlags().StringVar(&in.ProjectPath, "project-path", in.ProjectPath, "absolute path to project directory")
@@ -30,6 +31,7 @@ func (c *Container) commandMapping() (*cobra.Command, runner) {
 		"display scheme [%s]",
 		strings.Join(models.MappingSchemesValues, ","),
 	))
+	cmd.PersistentFlags().StringVarP(&in.FilterGlob, "filter", "f", in.FilterGlob, "filter output by package path glob (e.g. 'internal/**/payment*')")
 
 	return cmd, func(act *cobra.Command) (any, error) {
 		hasValidScheme := false

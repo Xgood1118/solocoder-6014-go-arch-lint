@@ -26,6 +26,8 @@ func (c *Container) commandGraph() (*cobra.Command, runner) {
 		Focus:          "",
 		IncludeVendors: false,
 		ExportD2:       false,
+		DiffFrom:       "",
+		DiffTo:         "",
 	}
 
 	cmd.PersistentFlags().StringVar(&in.ProjectPath, "project-path", in.ProjectPath, "absolute path to project directory")
@@ -35,9 +37,15 @@ func (c *Container) commandGraph() (*cobra.Command, runner) {
 	cmd.PersistentFlags().StringVar(&in.Focus, "focus", in.Focus, "render only specified component (should match component name exactly)")
 	cmd.PersistentFlags().BoolVarP(&in.IncludeVendors, "include-vendors", "r", in.IncludeVendors, "include vendor dependencies (from \"canUse\" block)?")
 	cmd.PersistentFlags().BoolVar(&in.ExportD2, "d2", in.ExportD2, "output raw d2 definitions to stdout (from which svg is generated)")
+	cmd.PersistentFlags().StringVar(&in.DiffFrom, "diff-from", in.DiffFrom, "diff mode: base commit ref (git rev-parse compatible)")
+	cmd.PersistentFlags().StringVar(&in.DiffTo, "diff-to", in.DiffTo, "diff mode: target commit ref (git rev-parse compatible)")
 
 	return cmd, func(act *cobra.Command) (any, error) {
 		in.OutputType = c.flags.OutputType
+
+		if in.Type == models.GraphTypeDiff && (in.DiffFrom == "" || in.DiffTo == "") {
+			return nil, fmt.Errorf("diff mode requires both --diff-from and --diff-to flags")
+		}
 
 		return c.commandGraphOperation().Behave(act.Context(), in)
 	}

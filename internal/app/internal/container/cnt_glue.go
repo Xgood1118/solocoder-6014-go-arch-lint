@@ -1,6 +1,7 @@
 package container
 
 import (
+	"github.com/fe3dback/go-arch-lint/internal/services/cache"
 	"github.com/fe3dback/go-arch-lint/internal/services/checker"
 	"github.com/fe3dback/go-arch-lint/internal/services/common/path"
 	"github.com/fe3dback/go-arch-lint/internal/services/common/yaml/reference"
@@ -74,7 +75,12 @@ func (c *Container) provideProjectFilesResolver() *resolver.Resolver {
 	return resolver.NewResolver(
 		c.provideProjectFilesScanner(),
 		c.provideProjectFilesHolder(),
+		c.provideCacheService(),
 	)
+}
+
+func (c *Container) provideCacheService() *cache.Service {
+	return cache.NewService()
 }
 
 func (c *Container) provideProjectFilesScanner() *scanner.Scanner {

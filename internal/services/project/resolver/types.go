@@ -9,7 +9,7 @@ import (
 )
 
 type (
-	projectFilesResolver interface {
+	projectFilesScanner interface {
 		Scan(
 			ctx context.Context,
 			projectDirectory string,
@@ -21,5 +21,12 @@ type (
 
 	projectFilesHolder interface {
 		HoldProjectFiles(files []models.ProjectFile, components []arch.Component) []models.FileHold
+	}
+
+	cacheService interface {
+		Read(projectDir string) (models.CacheFile, error)
+		ComputeConfigHash(archFilePath string) (string, error)
+		IsValid(cache models.CacheFile, currentConfigHash string) bool
+		ToProjectFiles(cache models.CacheFile) []models.ProjectFile
 	}
 )

@@ -17,6 +17,7 @@ type (
 		ProjectPath string
 		ArchFile    string
 		Scheme      MappingScheme
+		FilterGlob  string
 	}
 
 	CmdMappingOut struct {
@@ -25,6 +26,7 @@ type (
 		MappingGrouped   []CmdMappingOutGrouped `json:"MappingGrouped"`
 		MappingList      []CmdMappingOutList    `json:"MappingList"`
 		Scheme           MappingScheme          `json:"-"`
+		FilterGlob       string                 `json:"FilterGlob,omitempty"`
 	}
 
 	CmdMappingOutGrouped struct {

@@ -1,0 +1,1 @@
+graph diff 用 git checkout 切 commit，工作目录有改动时 stash 失败、切不回去，用户直接在 detached HEAD 里了。mapping filter glob 两个问题：glob 对着硬盘全路径匹配而不是包相对路径，而且 Windows 路径是反斜杠、正则里写的正斜杠分隔符匹配不上——靠下划线缩进范围类的写法跑 Windows 全空。cache 每次都是全量扫，没有增量更新机制，项目大了每次 cache 都冷重扫。检查修复一下。
